@@ -1,0 +1,3 @@
+Thu Nov 21 22:22:55 2024
+WARNING: mju_openResource: unknown file 'a1/a1_scene.xml'
+

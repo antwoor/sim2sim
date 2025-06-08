@@ -53,7 +53,7 @@ if [ "$display_flag" = "true" ]; then
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     -v "/home/${HOMENAME}/.Xauthority:/root/.Xauthority" \
     -e "DISPLAY=$DISPLAY" \
-    -v "${PWD}/src:/home/root/rl_ws" \
+    -v "${PWD}:/home/root/rl_ws" \
     --network=host \
     --gpus="$gpus" \
     --name="ppo_container" \
