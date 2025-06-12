@@ -11,9 +11,6 @@ os.sys.path.insert(0, parentdir)
 print(currentdir)
 print(parentdir)
 from motion_imitation.robots import go1
-from motion_imitation.envs import env_builder
-from motion_imitation.robots import robot_config
-from agents.src.ddpg_agent import Agent as ddpg_agent
 import torch
 from torch.utils.tensorboard import SummaryWriter
 from collections import deque
@@ -141,8 +138,12 @@ class Go1Env(gym.Env):
         self.episode_reward = 0
         return state
 
+    def obs(self):
+        return np.concatenate([self.robot.GetTrueObservation(), self.robot.GetFootContacts()])
+    
     def step(self, action):
         # Применяем действие
+        print("ACTION SIZE = ", len(action), "action is", action)
         action = self.robot._ClipMotorCommands(
             motor_control_mode=go1.robot_config.MotorControlMode.TORQUE,
             motor_commands=10 * action
@@ -200,24 +201,12 @@ class Go1Env(gym.Env):
         energy_penalty = 0.0
         if joint_torques is not None:
             energy_penalty = -0.01 * np.sum(np.square(joint_torques))
-
-        # Плавность управления
-        #if hasattr(self, 'last_action'):
-        #    action_smoothness = -0.1 * np.sum(np.square(self.last_action - self.current_action))
-
         # Временные компоненты
         time_progress = 25.0 * (Ts / Tf)
         survival_bonus = 10.0  # Поощрение за каждый шаг
 
         # Терминальные условия
         termination_penalty = 0.0
-        #if done:
-        #    if y < 0.15:  # Падение
-        #        termination_penalty = -1000.0
-        #    elif Ts >= Tf:  # Успешное завершение
-        #        termination_penalty = 1000.0
-
-        # Собираем все компоненты
         total_reward = (
             velocity_reward
             + height_penalty
@@ -230,19 +219,6 @@ class Go1Env(gym.Env):
             + survival_bonus
             + termination_penalty
         )
-
-        # Логирование компонентов (для отладки)
-        # if self.writer:
-        #     components = {
-        #         'velocity_reward': velocity_reward,
-        #         'height_penalty': height_penalty,
-        #         'orientation_penalty': orientation_penalty,
-        #         'contact_bonus': contact_bonus,
-        #         'energy_penalty': energy_penalty,
-        #         'time_progress': time_progress
-        #     }
-        #     for name, value in components.items():
-        #         self.writer.add_scalar(f'reward/{name}', value, self.step_count)
 
         return total_reward
 
@@ -310,8 +286,6 @@ def train(n_episodes=1000, max_t=1000, print_every=100, prefill_steps=5000, robo
         #pyb.stepSimulation()  # Выполняем шаг симуляции
         robot.ReceiveObservation()
         state = robot.GetTrueObservation() + robot.GetFootContacts()
-        #print("the size of state is ", np.size(state))
-        #print("the size of true obs is ", np.size(robot.GetTrueObservation()))
         agent.reset()
         score = 0
 
@@ -360,58 +334,7 @@ def train(n_episodes=1000, max_t=1000, print_every=100, prefill_steps=5000, robo
 scores = []
 
 if __name__ == '__main__':
+    import ppo.ppo_agent as PPO
     env = Go1Env()
-    agent = ddpg_agent(state_size=env.observation_space.shape[0], action_size=env.action_space.shape[0], random_seed=2)
-
-    max_reward = -float('inf')
-    weights_dir = 'weights'
-    # Загрузка последних предобученных весов (если они существуют)
-    actor_weights_path = os.path.join(weights_dir, 'actor_weights_max_reward.pth')
-    critic_weights_path = os.path.join(weights_dir, 'critic_weights_max_reward.pth')
-
-    if os.path.exists(actor_weights_path) and os.path.exists(critic_weights_path):
-        agent.actor_local.load_state_dict(torch.load(actor_weights_path))
-        agent.critic_local.load_state_dict(torch.load(critic_weights_path))
-        print("Loaded pre-trained weights.")
-    else:
-        print("No pre-trained weights found. Starting from scratch.")
-
-    if not os.path.exists(weights_dir):
-        os.makedirs(weights_dir)
-    # Обучение или эвалюация
-    for episode in range(10000):
-        state = env.reset()
-        total_reward = 0
-        done = False
-        
-        while not done:
-            action = agent.act(state, add_noise=True)  # Включить шум для обучения
-            next_state, reward, done, _ = env.step(action)
-            #agent.step(state, action, reward, next_state, done)
-            # if agent.last_tgQ is not 0 and done:
-            #     env.writer.add_scalar('target_Q', agent.last_tgQ.detach().cpu().numpy().mean(), env.episode_count-1)
-            #     env.writer.add_scalar('actual_Q', agent.last_actQ.detach().cpu().numpy().mean(), env.episode_count-1)
-            #     env.writer.add_scalar('excpected_Q', agent.last_expQ.detach().cpu().numpy().mean(), env.episode_count-1)
-            time.sleep(0.01)
-            state = next_state
-            total_reward += reward
-        
-        print(f"Episode {episode + 1}, Total Reward: {total_reward}")
-        #print("tgQ", agent.last_tgQ)
-        #print("actQ", agent.last_actQ)
-        #print("expQ", agent.last_expQ)
-        # Сохранение весов, если награда больше 250 и больше предыдущей максимальной
-        # if total_reward > 250 and total_reward > max_reward:
-        #     max_reward = total_reward  # Обновляем максимальную награду
-        #     actor_path = os.path.join(weights_dir, f'actor_weights_max_reward.pth')
-        #     critic_path = os.path.join(weights_dir, f'critic_weights_max_reward.pth')
-        #     torch.save(agent.actor_local.state_dict(), actor_path)
-        #     torch.save(agent.critic_local.state_dict(), critic_path)
-        #     print(f"New max reward: {max_reward}. Weights saved to {weights_dir}.")
-        # elif episode % 1000 == 0:
-        #     actor_path = os.path.join(weights_dir, f'actor_weights_{episode}.pth')
-        #     critic_path = os.path.join(weights_dir, f'critic_weights_{episode}.pth')
-        #     torch.save(agent.actor_local.state_dict(), actor_path)
-        #     torch.save(agent.critic_local.state_dict(), critic_path)
-        #     print(f"New max reward: {max_reward}. Weights saved to {weights_dir}.")
-    env.close()
+    agent = PPO.PPOAgent(env, lr=3e-4, hidden_dim=128) #, load_path='../ppo_8000.pth'
+    agent.train_ppo(env, agent, episodes=150000, dynamic=False)

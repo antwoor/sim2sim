@@ -17,7 +17,7 @@ class PPOAgent:
         
         # Initialize networks
         obs_dim = env.obs().shape[0]
-        act_dim = 1  # Assuming 1D continuous action
+        act_dim = env.action_space.shape[0]  # Автоматическое определение размерности действий
         
         self.policy = PPONetwork(obs_dim, act_dim, hidden_dim)
         self.old_policy = PPONetwork(obs_dim, act_dim, hidden_dim)
@@ -44,13 +44,13 @@ class PPOAgent:
         print(f"Loaded model weights from {path}")
 
     def act(self, state):
-        state = torch.FloatTensor(state).unsqueeze(0)
+        state_tensor = torch.FloatTensor(state).unsqueeze(0)
         with torch.no_grad():
-            dist, _ = self.old_policy(state)
+            dist, _ = self.old_policy(state_tensor)
             action = dist.sample()
-            log_prob = dist.log_prob(action)
+            log_prob = dist.log_prob(action).sum(dim=1)
             
-        return action.item(), log_prob.item()
+        return action.squeeze(0).numpy(), log_prob.item()
     
     def store_transition(self, state, action, reward, next_state, done, log_prob):
         self.states.append(state)
@@ -75,7 +75,7 @@ class PPOAgent:
     def update(self):
         # Convert to tensors
         states = torch.FloatTensor(np.array(self.states))
-        actions = torch.FloatTensor(np.array(self.actions)).unsqueeze(1)
+        actions = torch.FloatTensor(np.array(self.actions))
         old_log_probs = torch.FloatTensor(np.array(self.log_probs)).unsqueeze(1)
         returns = self.compute_returns()
         
@@ -135,10 +135,9 @@ class PPOAgent:
         # Update old policy
         self.old_policy.load_state_dict(self.policy.state_dict())
 
-    def train_ppo(self, env, agent, episodes=1000, max_steps=500, update_freq=2048, dynamic = False, freq = None, act_k=0, pos_k=0):
+    def train_ppo(self, env, agent, episodes=1000, max_steps=500, update_freq=2048, dynamic=False, freq=None, act_k=0, pos_k=0):
         episode_rewards = []
         if not dynamic:
-            writer = SummaryWriter(log_dir='runs/static_ppo_training')
             base_dir = "static_weights"
             weights_dir = base_dir
             counter = 1
@@ -147,12 +146,13 @@ class PPOAgent:
                 counter += 1
             os.makedirs(weights_dir, exist_ok=True)
 
-            # Инициализация TensorBoard с уникальным подкаталогом
+            # Инициализация TensorBoard
             tb_dir = f"runs/ppo_{os.path.basename(weights_dir)}"
             os.makedirs(tb_dir, exist_ok=True)
             writer = SummaryWriter(log_dir=tb_dir)
+            
             for episode in range(episodes):
-                state = env.reset_model()
+                state = env.reset()
                 episode_reward = 0
                 
                 for step in range(max_steps):
@@ -160,25 +160,13 @@ class PPOAgent:
                     action, log_prob = agent.act(state)
                     
                     # Take step
-                    next_state, reward, done = env.step([action])
-                    
-                    # Custom reward for inverted pendulum
-                    # Reward for being upright (angle close to 0)
-                    angle = next_state[1]
-                    #if angle > np.pi:
-                    #    angle = angle - 2*np.pi
-                    reward = np.cos(angle)  # Max reward when angle=0
+                    next_state, reward, done, _ = env.step(action)
                     
                     # Store transition
                     agent.store_transition(state, action, reward, next_state, done, log_prob)
                     
                     state = next_state
                     episode_reward += reward
-                    
-                    # Render occasionally
-                    if episode % 10 == 0:
-                        env.draw_ball([0, 0, 0.5], color=[0, 1, 0, 1], radius=0.05)
-                        time.sleep(0.01)
                     
                     # Update if we have enough samples
                     if len(agent.states) >= update_freq:
@@ -187,19 +175,19 @@ class PPOAgent:
                     if done:
                         break
                 
-                avg_reward = np.mean(episode_rewards[-10:])    
-                writer.add_scalar('Reward/Angle', avg_reward, episode)
+                avg_reward = np.mean(episode_rewards[-10:]) if episode_rewards else episode_reward
+                writer.add_scalar('Reward/Episode', episode_reward, episode)
+                writer.add_scalar('Reward/Avg_10', avg_reward, episode)
                 episode_rewards.append(episode_reward)
                 
                 # Print progress
                 if episode % 10 == 0:
-                    print(f"Episode {episode}, Avg Reward: {avg_reward:.2f}")
-                    if episode %500 ==0:
+                    print(f"Episode {episode}, Reward: {episode_reward:.2f}, Avg Reward: {avg_reward:.2f}")
+                    if episode % 500 == 0:
                         torch.save(self.policy.state_dict(), f"{weights_dir}/ppo_{episode}.pth")
         else:
-            act_k=1
-            pos_k=1
-            writer = SummaryWriter(log_dir='runs/ppo_training')
+            act_k = 1
+            pos_k = 1
             base_dir = "dynamic_weights"
             weights_dir = base_dir
             counter = 1
@@ -208,7 +196,7 @@ class PPOAgent:
                 counter += 1
             os.makedirs(weights_dir, exist_ok=True)
 
-            # Инициализация TensorBoard с уникальным подкаталогом
+            # Инициализация TensorBoard
             tb_dir = f"runs/ppo_{os.path.basename(weights_dir)}"
             os.makedirs(tb_dir, exist_ok=True)
             writer = SummaryWriter(log_dir=tb_dir)
@@ -217,16 +205,14 @@ class PPOAgent:
             print(f"Логи TensorBoard в: {tb_dir}")
 
             for episode in range(episodes):
-                state = env.reset_model()
+                state = env.reset()
                 episode_reward = 0
                 target_update_freq = 100 if freq is None else freq
 
                 # Генерируем новую цель
                 if episode % target_update_freq == 0:
                     target_pos = [np.random.rand() - 0.5, 0, 0.6]
-                    env.ball_position = target_pos  # Обновляем позицию шарика в среде
-
-                env.draw_ball(target_pos, color=[1, 0, 0, 1], radius=0.05)
+                    env.set_target(target_pos)  # Предполагается метод в среде
 
                 # Переменные для агрегации метрик за эпизод
                 total_angle_reward = 0
@@ -237,32 +223,18 @@ class PPOAgent:
 
                 for step in range(max_steps):
                     action, log_prob = agent.act(state)
-                    next_state, _, done = env.step([action])
-
-                    angle = next_state[1]
-                    cart_position = next_state[0]
-                    distance_to_target = abs(cart_position - target_pos[0])
-
-                    # Компоненты награды
-                    angle_reward = np.cos(angle)
-                    distance_reward = 10 * np.exp(-distance_to_target)
-                    action_penalty = 0.5 * (next_state[2]**2)
-                    reward = 10*angle_reward + pos_k*distance_reward - 5*distance_to_target - act_k*action_penalty
+                    next_state, reward, done, info = env.step(action)
 
                     # Агрегируем метрики
-                    total_angle_reward += 10*angle_reward
-                    total_distance_reward += pos_k*distance_reward
-                    total_action_penalty += act_k*action_penalty
-                    total_distance += distance_to_target
+                    total_angle_reward += info.get('angle_reward', 0)
+                    total_distance_reward += info.get('distance_reward', 0)
+                    total_action_penalty += info.get('action_penalty', 0)
+                    total_distance += info.get('distance_to_target', 0)
                     steps += 1
 
                     agent.store_transition(state, action, reward, next_state, done, log_prob)
                     state = next_state
                     episode_reward += reward
-
-                    if episode % 50 == 0:
-                        env.draw_ball(target_pos, color=[1, 0, 0, 1], radius=0.05)
-                        time.sleep(0.01)
 
                     if len(agent.states) >= update_freq:
                         agent.update()
@@ -283,28 +255,21 @@ class PPOAgent:
 
                 # Консольное логирование
                 if episode % 10 == 0:
-                    avg_reward = np.mean(episode_rewards[-10:])
-                    print(f"Episode {episode}, Avg Reward: {avg_reward:.2f}, "
-                          f"Angle: {total_angle_reward/steps:.2f}, "
-                          f"Dist: {total_distance_reward/steps:.2f}, "
-                          f"Target X: {target_pos[0]:.2f}")
-
-                    # Динамическая адаптация коэффициентов
-                    if episode % 100 == 0 and episode > 0:
-                        if avg_reward < 100:  # Если награда низкая
-                            pos_k = min(pos_k * 1.1, 2.0)  # Увеличиваем важность расстояния
-                            act_k = max(act_k * 0.9, 0.5)  # Уменьшаем штраф за действия
+                    avg_reward = np.mean(episode_rewards[-10:]) if len(episode_rewards) >= 10 else episode_reward
+                    print(f"Episode {episode}, Reward: {episode_reward:.2f}, Avg Reward: {avg_reward:.2f}")
 
                 if episode % 500 == 0:
-                    torch.save(agent.policy.state_dict(), f"dynamic_weights/ppo_{episode}_{avg_reward:.0f}.pth")
+                    torch.save(agent.policy.state_dict(), f"{weights_dir}/ppo_{episode}.pth")
 
+        writer.close()
         return episode_rewards
 
 # Initialize environment and agent
 if __name__ =='__main__':
-    from examples.dynamic_test import InvertedPendulumEnv
-    env = InvertedPendulumEnv()
-    agent = PPOAgent(env, lr=3e-4, hidden_dim=128)
+    from go1_env import Go1Env  # Импорт вашего окружения
+    
+    env = Go1Env()
+    agent = PPOAgent(env, lr=3e-4, hidden_dim=256)
 
     # Train the agent
-    rewards = train_ppo(env, agent, episodes=500)
+    rewards = agent.train_ppo(env, agent, episodes=500, dynamic=False)
