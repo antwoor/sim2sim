@@ -375,5 +375,7 @@ class PoseSensor(sensor.BoxSpaceSensor):
         dtype=dtype)
 
   def _get_observation(self) -> _ARRAY:
+    print("BasePosition: ", self._robot.GetBasePosition()[:2])
+    print("Orientation: ", self._robot.GetTrueBaseRollPitchYaw()[2]) 
     return np.concatenate((self._robot.GetBasePosition()[:2],
                            (self._robot.GetTrueBaseRollPitchYaw()[2],)))

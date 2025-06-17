@@ -251,6 +251,7 @@ class Minitaur(object):
     return self._step_counter * self.time_step
 
   def _StepInternal(self, action, motor_control_mode):
+    #print("STEP_INTERNAL CALLED")
     self.ApplyAction(action, motor_control_mode)
     self._pybullet_client.stepSimulation()
     self.ReceiveObservation()
@@ -258,6 +259,7 @@ class Minitaur(object):
 
   def Step(self, action, control_mode=None):
     """Steps simulation."""
+    #print("STEP CALLED")
     if self._enable_action_filter:
       action = self._FilterAction(action)
     if control_mode==None:
@@ -1446,6 +1448,7 @@ class Minitaur(object):
     Returns:
       sensors: a list of all sensors.
     """
+    print(self._sensors)
     return self._sensors
 
   def GetSensor(self, name):

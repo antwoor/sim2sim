@@ -1,0 +1,14 @@
+Metadata-Version: 2.1
+Name: ppo
+Version: 0.1.0
+Summary: PPO implementation for inverted pendulum control
+Home-page: UNKNOWN
+Author: Geroyev Alexander
+Author-email: geroev_sasha@mail.ru
+License: MIT
+Keywords: reinforcement-learning ppo mujoco
+Platform: UNKNOWN
+Provides-Extra: dev
+
+UNKNOWN
+

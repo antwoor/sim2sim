@@ -72,6 +72,8 @@ def flatten_observation_spaces(observation_spaces, observation_excluded=()):
     A box space or a dictionary of observation spaces based on whether
       observation_excluded is empty.
   """
+  print("OBS SPACE", observation_spaces)
+  print("OBS EXCLUDED", observation_excluded)  # Проверьте, что это не все ключи
   if not isinstance(observation_excluded, (list, tuple)):
     observation_excluded = [observation_excluded]
   lower_bound = []
