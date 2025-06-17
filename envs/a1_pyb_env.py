@@ -75,7 +75,8 @@ class PyBulletA1(BaseRobotInterface):
             'pitch': self.robot.GetBaseRollPitchYaw()[1],
             'yaw': self.robot.GetBaseRollPitchYaw()[2],
             'contacts': self.robot.GetFootContacts(),
-            'joint_torques': self.robot.GetMotorTorques()
+            'joint_torques': self.robot.GetMotorTorques(),
+            'fall': self.is_done()
         }
     
     def is_done(self):
@@ -91,6 +92,16 @@ class PyBulletA1(BaseRobotInterface):
 
     def close(self):
         self.pyb.disconnect()
+    
+    def get_metrics(self):
+        """Возвращает словарь с текущими метриками"""
+        return {
+            'velocity': self.robot.GetBaseVelocity()[0],
+            'height': self.robot.GetBasePosition()[2],
+            'orientation': np.sum(self.robot.GetBaseRollPitchYaw()**2),
+            'contacts': np.sum(self.robot.GetFootContacts()),
+            'energy': np.sum(np.square(self.robot.GetMotorTorques()))
+        }
 
 # Пример использования
 if __name__ == '__main__':
@@ -99,26 +110,37 @@ if __name__ == '__main__':
     a1_robot = PyBulletA1(render_mode='human')
     
     # Создаем обертку среды
-    env = RobotEnvWrapper(a1_robot, max_episode_steps=2000)
-    
+    env = RobotEnvWrapper(a1_robot, max_episode_steps=10000)
     # Теперь можно использовать env с любым RL-алгоритмом
     from ppo.ppo_agent import PPOAgent
-    agent = PPOAgent(env, lr=3e-4, hidden_dim=128, epochs=200, batch_size=100)
-    
-    # Запуск обучения
-    rewards = []
-    for episode in range(2000):
-        state = env.reset()
-        episode_reward = 0
-        done = False
-        
-        while not done:
-            action = agent.act(state)
-            next_state, reward, done, _ = env.step(action)
-            episode_reward += reward
-            state = next_state
-        
-        rewards.append(episode_reward)
-        print(f"Episode {episode}, Reward: {episode_reward:.2f}")
+    agent = PPOAgent(env, lr=3e-4, 
+                     hidden_dim=300, 
+                     epochs=200, 
+                     batch_size=100)
+    ewards = agent.train_ppo(
+    env=env,
+    agent=agent,
+    episodes=10000,
+    max_steps=2000,
+    update_freq=2048,
+    save_interval=200,
+    log_dir="runs/ppo_a1_train"
+)
+    #
+    ## Запуск обучения
+    #rewards = []
+    #for episode in range(2000):
+    #    state = env.reset()
+    #    episode_reward = 0
+    #    done = False
+    #    
+    #    while not done:
+    #        action = agent.act(state)
+    #        next_state, reward, done, _ = env.step(action)
+    #        episode_reward += reward
+    #        state = next_state
+    #    
+    #    rewards.append(episode_reward)
+    #    print(f"Episode {episode}, Reward: {episode_reward:.2f}")
     
     env.close()

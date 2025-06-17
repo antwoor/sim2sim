@@ -135,132 +135,106 @@ class PPOAgent:
         
         # Update old policy
         self.old_policy.load_state_dict(self.policy.state_dict())
+    
+    @staticmethod
+    def train_ppo(env, agent, episodes=1000, max_steps=1000, update_freq=2048, 
+                  save_interval=500, log_dir="runs/ppo_a1"):
+        """
+        Обучение PPO для шагающего робота Unitree A1
 
-    def train_ppo(self, env, agent, episodes=1000, max_steps=500, update_freq=2048, dynamic=False, freq=None, act_k=0, pos_k=0):
+        Args:
+            env: Среда с роботом (должна реализовывать get_metrics() для дополнительных метрик)
+            agent: PPO агент
+            episodes: Количество эпизодов обучения
+            max_steps: Максимальное количество шагов в эпизоде
+            update_freq: Частота обновления политики (в шагах)
+            save_interval: Частота сохранения модели (в эпизодах)
+            log_dir: Директория для логов TensorBoard
+        """
+        # Инициализация директорий
+        os.makedirs("a1_weights", exist_ok=True)
+        os.makedirs(log_dir, exist_ok=True)
+        writer = SummaryWriter(log_dir=log_dir)
+
         episode_rewards = []
-        if not dynamic:
-            base_dir = "static_weights"
-            weights_dir = base_dir
-            counter = 1
-            while os.path.exists(weights_dir):
-                weights_dir = f"{base_dir}{counter}"
-                counter += 1
-            os.makedirs(weights_dir, exist_ok=True)
+        best_mean_reward = -np.inf
 
-            # Инициализация TensorBoard
-            tb_dir = f"runs/ppo_{os.path.basename(weights_dir)}"
-            os.makedirs(tb_dir, exist_ok=True)
-            writer = SummaryWriter(log_dir=tb_dir)
-            
-            for episode in range(episodes):
-                state = env.reset()
-                episode_reward = 0
-                
-                for step in range(max_steps):
-                    # Get action
-                    action, log_prob = agent.act(state)
-                    
-                    # Take step
-                    next_state, reward, done, _ = env.step(action)
-                    
-                    # Store transition
-                    agent.store_transition(state, action, reward, next_state, done, log_prob)
-                    
-                    state = next_state
-                    episode_reward += reward
-                    
-                    # Update if we have enough samples
-                    if len(agent.states) >= update_freq:
-                        agent.update()
-                    
-                    if done:
-                        break
-                
-                avg_reward = np.mean(episode_rewards[-10:]) if episode_rewards else episode_reward
-                writer.add_scalar('Reward/Episode', episode_reward, episode)
-                writer.add_scalar('Reward/Avg_10', avg_reward, episode)
-                episode_rewards.append(episode_reward)
-                
-                # Print progress
-                if episode % 10 == 0:
-                    print(f"Episode {episode}, Reward: {episode_reward:.2f}, Avg Reward: {avg_reward:.2f}")
-                    if episode % 500 == 0:
-                        torch.save(self.policy.state_dict(), f"{weights_dir}/ppo_{episode}.pth")
-        else:
-            act_k = 1
-            pos_k = 1
-            base_dir = "dynamic_weights"
-            weights_dir = base_dir
-            counter = 1
-            while os.path.exists(weights_dir):
-                weights_dir = f"{base_dir}{counter}"
-                counter += 1
-            os.makedirs(weights_dir, exist_ok=True)
+        for episode in range(1, episodes + 1):
+            state = env.reset()
+            episode_reward = 0
+            done = False
+            step_count = 0
 
-            # Инициализация TensorBoard
-            tb_dir = f"runs/ppo_{os.path.basename(weights_dir)}"
-            os.makedirs(tb_dir, exist_ok=True)
-            writer = SummaryWriter(log_dir=tb_dir)
+            # Статистика за эпизод
+            ep_metrics = {
+                'velocity': 0,
+                'height': 0,
+                'orientation': 0,
+                'contacts': 0,
+                'energy': 0,
+                'survival': 0
+            }
 
-            print(f"Сохранение весов в: {weights_dir}")
-            print(f"Логи TensorBoard в: {tb_dir}")
+            while not done and step_count < max_steps:
+                # Получаем действие
+                action, log_prob = agent.act(state)
 
-            for episode in range(episodes):
-                state = env.reset()
-                episode_reward = 0
-                target_update_freq = 100 if freq is None else freq
+                # Шаг в среде
+                next_state, reward, done, info = env.step(action)
 
-                # Генерируем новую цель
-                if episode % target_update_freq == 0:
-                    target_pos = [np.random.rand() - 0.5, 0, 0.6]
-                    env.set_target(target_pos)  # Предполагается метод в среде
+                # Сохраняем переход
+                agent.store_transition(state, action, reward, next_state, done, log_prob)
 
-                # Переменные для агрегации метрик за эпизод
-                total_angle_reward = 0
-                total_distance_reward = 0
-                total_action_penalty = 0
-                total_distance = 0
-                steps = 0
+                # Обновляем статистику
+                episode_reward += reward
+                step_count += 1
+                state = next_state
 
-                for step in range(max_steps):
-                    action, log_prob = agent.act(state)
-                    next_state, reward, done, info = env.step(action)
+                # Логируем дополнительные метрики из среды
+                if hasattr(env, 'get_metrics'):
+                    metrics = env.get_metrics()
+                    for k in ep_metrics:
+                        ep_metrics[k] += metrics.get(k, 0)
 
-                    # Агрегируем метрики
-                    total_angle_reward += info.get('angle_reward', 0)
-                    total_distance_reward += info.get('distance_reward', 0)
-                    total_action_penalty += info.get('action_penalty', 0)
-                    total_distance += info.get('distance_to_target', 0)
-                    steps += 1
+                # Обновляем политику при накоплении достаточного числа примеров
+                if len(agent.states) >= update_freq:
+                    agent.update()
 
-                    agent.store_transition(state, action, reward, next_state, done, log_prob)
-                    state = next_state
-                    episode_reward += reward
+            # Нормализуем метрики по количеству шагов
+            for k in ep_metrics:
+                ep_metrics[k] /= max(1, step_count)
 
-                    if len(agent.states) >= update_freq:
-                        agent.update()
+            # Сохраняем результаты
+            episode_rewards.append(episode_reward)
+            current_mean = np.mean(episode_rewards[-10:])
 
-                    if done:
-                        break
-                    
-                # Логирование в TensorBoard
-                writer.add_scalar('Reward/Total', episode_reward, episode)
-                writer.add_scalar('Reward/Angle', total_angle_reward/steps, episode)
-                writer.add_scalar('Reward/Distance', total_distance_reward/steps, episode)
-                writer.add_scalar('Penalty/Action', total_action_penalty/steps, episode)
-                writer.add_scalar('Metrics/Distance_to_target', total_distance/steps, episode)
-                writer.add_scalar('Params/Position_k', pos_k, episode)
-                writer.add_scalar('Params/Action_k', act_k, episode)
+            # Логирование в TensorBoard
+            writer.add_scalar('Reward/Episode', episode_reward, episode)
+            writer.add_scalar('Reward/Average_10', current_mean, episode)
 
-                episode_rewards.append(episode_reward)
+            # Логирование специфичных метрик
+            writer.add_scalar('Metrics/Velocity', ep_metrics['velocity'], episode)
+            writer.add_scalar('Metrics/Height', ep_metrics['height'], episode)
+            writer.add_scalar('Metrics/Orientation', ep_metrics['orientation'], episode)
+            writer.add_scalar('Metrics/Foot_Contacts', ep_metrics['contacts'], episode)
+            writer.add_scalar('Metrics/Energy', ep_metrics['energy'], episode)
+            writer.add_scalar('Metrics/Survival_Steps', step_count, episode)
 
-                # Консольное логирование
-                if episode % 10 == 0:
-                    avg_reward = np.mean(episode_rewards[-10:]) if len(episode_rewards) >= 10 else episode_reward
-                    print(f"Episode {episode}, Reward: {episode_reward:.2f}, Avg Reward: {avg_reward:.2f}")
+            # Сохранение модели
+            if episode % save_interval == 0 or current_mean > best_mean_reward:
+                if current_mean > best_mean_reward:
+                    best_mean_reward = current_mean
+                    torch.save(agent.policy.state_dict(), f"a1_weights/best_ppo.pth")
+                torch.save(agent.policy.state_dict(), f"a1_weights/ppo_{episode}.pth")
 
-                if episode % 500 == 0:
-                    torch.save(agent.policy.state_dict(), f"{weights_dir}/ppo_{episode}.pth")
+            # Вывод прогресса
+            if episode % 10 == 0:
+                print(f"Episode {episode:4d} | "
+                      f"Reward: {episode_reward:7.2f} | "
+                      f"Avg 10: {current_mean:7.2f} | "
+                      f"Steps: {step_count:4d} | "
+                      f"Vel: {ep_metrics['velocity']:5.3f} | "
+                      f"Height: {ep_metrics['height']:5.3f}")
 
         writer.close()
         return episode_rewards

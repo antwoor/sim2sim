@@ -99,14 +99,14 @@ class RobotEnvWrapper(gym.Env):
         
         return next_state, reward, done, {}
 
-    def calculate_reward(self, v_x, y, roll, pitch, yaw, contacts, joint_torques=None, **kwargs):
+    def calculate_reward(self, v_x, y, roll, pitch, yaw, contacts, joint_torques=None, fall=False, **kwargs):
         """
         Улучшенная функция вознаграждения для шагающего робота
         """
         target_height = 0.25  # Целевая высота центра масс
         
         # Базовые компоненты
-        velocity_reward = 5.0 * np.clip(v_x, -2.0, 2.0)
+        velocity_reward = 25.0 * np.clip(v_x, -2.0, 2.0)
         height_penalty = -80.0 * ((y - target_height) ** 2)
 
         # Стабильность и ориентация
@@ -124,7 +124,7 @@ class RobotEnvWrapper(gym.Env):
         survival_bonus = 10.0
 
         # Терминальные условия
-        termination_penalty = 0.0
+        termination_penalty = -700.0 if fall else 0.0  # Большой штраф за падение
         
         total_reward = (
             velocity_reward
@@ -140,6 +140,10 @@ class RobotEnvWrapper(gym.Env):
 
         return total_reward
 
+    def get_metrics(self):
+        """Возвращает словарь с текущими метриками"""
+        return self.robot.get_metrics()
+    
     def render(self, mode='human'):
         """Визуализация"""
         pass
