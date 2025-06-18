@@ -113,19 +113,25 @@ if __name__ == '__main__':
     env = RobotEnvWrapper(a1_robot, max_episode_steps=10000)
     # Теперь можно использовать env с любым RL-алгоритмом
     from ppo.ppo_agent import PPOAgent
-    agent = PPOAgent(env, lr=3e-4, 
-                     hidden_dim=300, 
-                     epochs=200, 
-                     batch_size=100)
-    ewards = agent.train_ppo(
-    env=env,
-    agent=agent,
-    episodes=10000,
-    max_steps=2000,
-    update_freq=2048,
-    save_interval=200,
-    log_dir="runs/ppo_a1_train"
-)
+    agent = PPOAgent(env,
+        lr=3e-4,               # Скорость обучения
+        gamma=0.99,            # Фактор дисконтирования
+        gae_lambda=0.95,       # Параметр GAE
+        clip_epsilon=0.2,      # Клиппинг для PPO
+        epochs=10,             # Количество эпох обновления
+        batch_size=8192,       # Размер батча
+        mini_batch_size=512,   # Размер мини-батча
+        hidden_dim=256,        # Размер скрытого слоя
+        vf_coef=0.5,           # Вес функции ценности
+        ent_coef=0.01,         # Вес энтропии
+        max_grad_norm=0.5      # Макс. норма градиента
+    )
+    rewards = agent.train(env, 
+                         episodes=10000,
+                         max_steps=1000,
+                         update_freq=8192,
+                         save_interval=200,
+                         log_dir="runs/ppo_a1_train")
     #
     ## Запуск обучения
     #rewards = []
