@@ -101,44 +101,60 @@ class RobotEnvWrapper(gym.Env):
 
     def calculate_reward(self, v_x, y, roll, pitch, yaw, contacts, joint_torques=None, fall=False, **kwargs):
         """
-        Улучшенная функция вознаграждения для шагающего робота
+        Улучшенная функция вознаграждения для шагающего робота.
+        Основные изменения:
+        - Сбалансированные коэффициенты
+        - Динамическая компенсация доминирующих компонент
+        - Плавные штрафы за ориентацию
+        - Адаптивное поощрение скорости
+        - Физически обоснованные ограничения
         """
-        target_height = 0.25  # Целевая высота центра масс
+        # Целевые параметры
+        target_velocity = 1.5  # м/с
+        target_height = 0.25   # м
         
-        # Базовые компоненты
-        velocity_reward = 25.0 * np.clip(v_x, -2.0, 2.0)
-        height_penalty = -80.0 * ((y - target_height) ** 2)
-
-        # Стабильность и ориентация
-        orientation_penalty = -15.0 * (roll**2 + pitch**2) - 5.0 * yaw**2
+        # 1. Вознаграждение за скорость (логарифмическое насыщение)
+        velocity_error = min(abs(v_x - target_velocity), 2.0)
+        velocity_reward = 8.0 * np.exp(-0.5 * velocity_error)
         
-        # Контакты с поверхностью
-        contact_bonus = 2.0 * np.sum(contacts)
-        flight_penalty = -50.0 if np.sum(contacts) == 0 else 0.0
-
-        # Энергоэффективность
-        energy_penalty = -0.01 * np.sum(np.square(joint_torques)) if joint_torques is not None else 0.0
+        # 2. Штраф за высоту (кубическая функция для мягких границ)
+        height_error = abs(y - target_height)
+        height_penalty = -40.0 * (height_error + 0.2 * height_error**3)
         
-        # Временные компоненты
-        time_progress = 25.0 * (self.current_step / self.max_episode_steps)
-        survival_bonus = 10.0
-
-        # Терминальные условия
-        termination_penalty = -700.0 if fall else 0.0  # Большой штраф за падение
+        # 3. Штраф за ориентацию (с разделением осей и порогом чувствительности)
+        orientation_penalty = (
+            -12.0 * (roll**2 + pitch**2) 
+            - 3.0 * np.where(abs(yaw) > 0.3, yaw**2, 0)
+        )
         
+        # 4. Контактный баланс (поощрение правильных фаз)
+        contact_bonus = 1.2 * np.mean(contacts)
+        flight_penalty = -10.0 * np.where(np.sum(contacts) == 0, 1.0, 0.0)
+        
+        # 5. Энергоэффективность (нормировка на количество суставов)
+        energy_penalty = 0
+        if joint_torques is not None:
+            torque_norm = np.mean(np.square(joint_torques))
+            energy_penalty = -0.025 * torque_norm
+        
+        # 6. Прогресс эпизода (линейное поощрение выживания)
+        survival_bonus = 20.0 * (self.current_step / self.max_episode_steps)
+        
+        # 7. Терминальные условия (компенсированный штраф)
+        termination_penalty = -500.0 if fall else 0.0
+        
+        # Динамическое масштабирование (предотвращает доминирование компонент)
         total_reward = (
-            velocity_reward
-            + height_penalty
-            + orientation_penalty
-            + contact_bonus
-            + flight_penalty
-            + energy_penalty
-            + time_progress
-            + survival_bonus
+            0.3 * velocity_reward
+            + 0.2 * height_penalty
+            + 0.25 * orientation_penalty
+            + 0.1 * (contact_bonus + flight_penalty)
+            + 0.05 * energy_penalty
+            + 0.1 * survival_bonus
             + termination_penalty
         )
-
-        return total_reward
+        
+        return np.clip(total_reward, -10.0, 15.0)
 
     def get_metrics(self):
         """Возвращает словарь с текущими метриками"""
