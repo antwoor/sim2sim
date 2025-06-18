@@ -1,4 +1,4 @@
-from gym_wrapper import BaseRobotInterface, gym
+from .gym_wrapper import BaseRobotInterface, gym
 import numpy as np
 import os, inspect
 
@@ -17,14 +17,14 @@ class MujocoA1(BaseRobotInterface):
         self.pd = pd
         
         # Подключение к симулятору (только один раз)
-        if not pyb.isConnected():
-            self.pyb_client = pyb.connect(pyb.DIRECT)
-            pyb.setAdditionalSearchPath(pd.getDataPath())
-            pyb.setGravity(0, 0, -9.8)
-            pyb.loadURDF("plane.urdf", basePosition=[0, 0, -0.01])
-            pyb.setRealTimeSimulation(0)
-        else:
-            self.pyb_client = pyb.getConnectionInfo()['connectionId']
+        #if not pyb.isConnected():
+        #    self.pyb_client = pyb.connect(pyb.DIRECT)
+        #    pyb.setAdditionalSearchPath(pd.getDataPath())
+        #    pyb.setGravity(0, 0, -9.8)
+        #    pyb.loadURDF("plane.urdf", basePosition=[0, 0, -0.01])
+        #    pyb.setRealTimeSimulation(0)
+        #else:
+        #    self.pyb_client = pyb.getConnectionInfo()['connectionId']
         
         # Импорт и инициализация робота
         from motion_imitation.robots import a1 as a1_mj

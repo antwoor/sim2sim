@@ -13,7 +13,7 @@ def collect_sim2sim_data(pb_env, mj_env, policy, num_episodes=100, max_steps=500
         mj_state = mj_env.reset()
         
         # Установка идентичных начальных условий
-        mj_env.set_state(pb_state)
+        #mj_env.set_state(pb_state)
         
         for _ in range(max_steps):
             # Генерация действия
@@ -37,6 +37,9 @@ def collect_sim2sim_data(pb_env, mj_env, policy, num_episodes=100, max_steps=500
             # Обновление состояний
             pb_state = pb_next_state
             mj_state = mj_next_state
+
+        if ep % num_episodes ==10:
+            print("episode number", ep, "|", num_episodes-ep, "remaining")
     
     return {
         'pb': (np.array(pb_states), np.array(pb_actions), np.array(pb_next_states)),
@@ -65,7 +68,6 @@ def prepare_dataset(sim_data):
     )
 
 def train_corrector(dataset, epochs=100, batch_size=256, lr=1e-3):
-    """Обучение модели коррекции действий"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = ActionCorrectionModel(
         state_dim=dataset[0]['state'].shape[0],
@@ -73,31 +75,31 @@ def train_corrector(dataset, epochs=100, batch_size=256, lr=1e-3):
     ).to(device)
     
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    loss_fn = nn.MSELoss()
-    
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     
     for epoch in range(epochs):
         epoch_loss = 0
-        for batch in dataloader:
+        for batch in DataLoader(dataset, batch_size=batch_size, shuffle=True):
             s = batch['state'].float().to(device)
             a = batch['action'].float().to(device)
-            target = batch['delta_state'].float().to(device)
+            target_delta_state = batch['delta_state'].float().to(device)
             
-            # Прямой проход
-            delta_a = model(s, a)
+            # Предсказываем коррекцию и якобиан
+            delta_a, jacobian = model(s, a)
             
-            # Вычисление потерь
-            loss = loss_fn(delta_a, target)
+            # Аппроксимируем изменение состояния
+            # Δstate ≈ J · Δaction
+            predicted_delta_state = torch.bmm(jacobian, delta_a.unsqueeze(-1)).squeeze(-1)
             
-            # Обратное распространение
+            # Сравниваем с целевым изменением состояния
+            loss = torch.mean(torch.norm(predicted_delta_state - target_delta_state, dim=1)**2)
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             
             epoch_loss += loss.item()
         
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(dataloader):.6f}")
+        print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss:.6f}")
     
     return model
 

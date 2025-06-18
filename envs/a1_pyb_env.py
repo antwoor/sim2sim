@@ -1,4 +1,4 @@
-from gym_wrapper import BaseRobotInterface, gym
+from .gym_wrapper import BaseRobotInterface, gym
 import numpy as np
 import os, inspect
 

@@ -1,0 +1,15 @@
+Metadata-Version: 2.1
+Name: corrector
+Version: 0.1
+Summary: action corrector network for sim2sim and sim2real
+Home-page: UNKNOWN
+Author: Geroyev Alexander
+Author-email: geroev_sasha@mail.ru
+License: GPL3
+Keywords: reinforcement-learning ppo mujoco,pybullet
+Platform: UNKNOWN
+Requires-Python: >=3.10
+License-File: LICENSE
+
+UNKNOWN
+
