@@ -800,7 +800,7 @@ class A1(a1_original.A1):
             reset_time <= 0 or in torque control mode, the phase of holding the
             default pose is skipped.
         """
-        print("RESET CALLED")
+        #print("RESET CALLED")
         self._reset_func(default_motor_angles, reset_time)
 
         self._overheat_counter = np.zeros(self.num_motors)

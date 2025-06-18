@@ -101,60 +101,64 @@ class RobotEnvWrapper(gym.Env):
 
     def calculate_reward(self, v_x, y, roll, pitch, yaw, contacts, joint_torques=None, fall=False, **kwargs):
         """
-        Улучшенная функция вознаграждения для шагающего робота.
-        Основные изменения:
-        - Сбалансированные коэффициенты
-        - Динамическая компенсация доминирующих компонент
-        - Плавные штрафы за ориентацию
-        - Адаптивное поощрение скорости
-        - Физически обоснованные ограничения
+        Сбалансированная функция вознаграждения с гарантией положительных значений
+        при удовлетворительном поведении. Ключевые изменения:
+        - Уменьшены доминирующие штрафы
+        - Введены достижимые бонусы
+        - Добавлены пороговые условия
+        - Нормализованы масштабы компонент
         """
-        # Целевые параметры
+        # Целевые параметры (настраиваемые)
         target_velocity = 1.5  # м/с
         target_height = 0.25   # м
         
-        # 1. Вознаграждение за скорость (логарифмическое насыщение)
-        velocity_error = min(abs(v_x - target_velocity), 2.0)
-        velocity_reward = 8.0 * np.exp(-0.5 * velocity_error)
+        # 1. Вознаграждение за скорость (основной драйвер)
+        velocity_reward = 8.0 * np.exp(-0.8 * abs(v_x - target_velocity))
         
-        # 2. Штраф за высоту (кубическая функция для мягких границ)
+        # 2. Бонус за высоту (вместо штрафа!)
         height_error = abs(y - target_height)
-        height_penalty = -40.0 * (height_error + 0.2 * height_error**3)
+        height_reward = 4.0 * np.exp(-15.0 * height_error)
         
-        # 3. Штраф за ориентацию (с разделением осей и порогом чувствительности)
-        orientation_penalty = (
-            -12.0 * (roll**2 + pitch**2) 
-            - 3.0 * np.where(abs(yaw) > 0.3, yaw**2, 0)
+        # 3. Ориентация (с пороговой функцией)
+        orientation_error = roll**2 + pitch**2
+        orientation_reward = (
+            3.0 * np.exp(-8.0 * orientation_error) 
+            - 5.0 * (abs(roll) > 0.6) 
+            - 5.0 * (abs(pitch) > 0.6)
         )
         
-        # 4. Контактный баланс (поощрение правильных фаз)
-        contact_bonus = 1.2 * np.mean(contacts)
-        flight_penalty = -10.0 * np.where(np.sum(contacts) == 0, 1.0, 0.0)
+        # 4. Контакты (баланс стабильности и движения)
+        contact_reward = 1.5 * np.mean(contacts)
         
-        # 5. Энергоэффективность (нормировка на количество суставов)
+        # 5. Энергоэффективность (незначительный штраф)
         energy_penalty = 0
         if joint_torques is not None:
-            torque_norm = np.mean(np.square(joint_torques))
-            energy_penalty = -0.025 * torque_norm
+            energy_penalty = -0.002 * np.mean(np.square(joint_torques))
         
-        # 6. Прогресс эпизода (линейное поощрение выживания)
-        survival_bonus = 20.0 * (self.current_step / self.max_episode_steps)
+        # 6. Прогресс эпизода (поощрение выживания)
+        progress_reward = 2.0 * (self.current_step / self.max_episode_steps)
         
-        # 7. Терминальные условия (компенсированный штраф)
-        termination_penalty = -500.0 if fall else 0.0
+        # 7. Терминальные условия
+        if fall:
+            # Динамический штраф в зависимости от времени выживания
+            termination_penalty = -50.0 - 30.0 * (self.current_step / self.max_episode_steps)
+        else:
+            termination_penalty = 0.0
         
-        # Динамическое масштабирование (предотвращает доминирование компонент)
+        # Собираем общую награду (все компоненты сравнимого масштаба)
         total_reward = (
-            0.3 * velocity_reward
-            + 0.2 * height_penalty
-            + 0.25 * orientation_penalty
-            + 0.1 * (contact_bonus + flight_penalty)
-            + 0.05 * energy_penalty
-            + 0.1 * survival_bonus
+            velocity_reward
+            + height_reward
+            + orientation_reward
+            + contact_reward
+            + energy_penalty
+            + progress_reward
             + termination_penalty
         )
         
-        return np.clip(total_reward, -10.0, 15.0)
+        # Гарантируем минимальное вознаграждение
+        baseline_bonus = 1.5  # Базовый бонус за "не падение"
+        return total_reward + baseline_bonus
 
     def get_metrics(self):
         """Возвращает словарь с текущими метриками"""

@@ -74,7 +74,7 @@ class A1_mj(a1.A1):
                                     reset_time=-1,
                                     velocity_source=False,
                                     reset_func_name='_mj_Reset',
-                                    motor_control_mode=a1.robot_config.MotorControlMode.TORQUE)
+                                    motor_control_mode=a1.robot_config.MotorControlMode.POSITION)
 
     def _mj_Reset():
         pass
