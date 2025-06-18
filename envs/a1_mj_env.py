@@ -30,7 +30,7 @@ class MujocoA1(BaseRobotInterface):
         from motion_imitation.robots import a1 as a1_mj
         from motion_imitation.robots import robot_config
         self.robot = a1_mj.A1(pybullet_client=self.pyb,
-                               motor_control_mode=robot_config.MotorControlMode.POSITION)
+                               motor_control_mode=robot_config.MotorControlMode.TORQUE)
         self.robot.Reset(reload_urdf=False)
         
     def reset(self):
@@ -118,19 +118,19 @@ if __name__ == '__main__':
         gamma=0.99,            # Фактор дисконтирования
         gae_lambda=0.95,       # Параметр GAE
         clip_epsilon=0.2,      # Клиппинг для PPO
-        epochs=10,             # Количество эпох обновления
+        epochs=20,             # Количество эпох обновления
         batch_size=8192,       # Размер батча
         mini_batch_size=512,   # Размер мини-батча
         hidden_dim=256,        # Размер скрытого слоя
         vf_coef=0.5,           # Вес функции ценности
-        ent_coef=0.01,         # Вес энтропии
+        ent_coef=0.1,         # Вес энтропии
         max_grad_norm=0.5      # Макс. норма градиента
     )
     rewards = agent.train(env, 
-                         episodes=10000,
+                         episodes=100000,
                          max_steps=1000,
                          update_freq=8192,
-                         save_interval=200,
+                         save_interval=1000,
                          log_dir="runs/ppo_a1_train")
     #
     ## Запуск обучения
