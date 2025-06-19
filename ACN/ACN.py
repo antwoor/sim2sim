@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-
+from .model import *
 class Sim2SimDataset(Dataset):
     """Датасет для обучения корректора"""
     def __init__(self, states, actions, delta_states):
@@ -22,9 +22,20 @@ class Sim2SimDataset(Dataset):
 
 class ActionCorrector:
     """Обертка для коррекции действий в реальном времени"""
-    def __init__(self, model_path, device='cuda'):
-        self.model = torch.load(model_path).to(device)
+    def __init__(self, model_path, state_dim, action_dim, device='cuda'):
         self.device = device
+        
+        # Загружаем сохраненные веса
+        state_dict = torch.load(model_path, map_location=device)
+        
+        # Создаем экземпляр модели с правильными размерами
+        self.model = ActionCorrectionModel(
+            state_dim=state_dim,
+            action_dim=action_dim
+        ).to(device)
+        
+        # Загружаем веса
+        self.model.load_state_dict(state_dict)
         self.model.eval()
         
     def correct(self, state, action):
@@ -32,6 +43,7 @@ class ActionCorrector:
         action_t = torch.FloatTensor(action).to(self.device)
         
         with torch.no_grad():
-            delta_action = self.model(state_t.unsqueeze(0), action_t.unsqueeze(0))
+            # Модель возвращает кортеж (delta_action, jacobian)
+            delta_action, _ = self.model(state_t.unsqueeze(0), action_t.unsqueeze(0))
         
         return action + delta_action.cpu().numpy().squeeze(0)
