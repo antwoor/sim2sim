@@ -137,7 +137,7 @@ def train_ppo_with_corrector(pb_env, mj_env, agent, episodes=5000, max_steps=100
             dataset = prepare_dataset(sim_data)
             
             # Обучаем корректор и получаем размерности
-            corrector_model, state_dim, action_dim = train_corrector(dataset)
+            corrector_model, state_dim, action_dim = train_corrector(dataset, epochs=500)
             
             # Сохраняем веса модели
             model_path = f"{correctors_dir}/ACN_{episode}.pth"
@@ -192,6 +192,8 @@ def train_ppo_with_corrector(pb_env, mj_env, agent, episodes=5000, max_steps=100
         writer.add_scalar('Reward/MuJoCo', mj_reward, episode)
         writer.add_scalar('Naked_Reward/PyBullet', naked_pyb_reward, episode)
         writer.add_scalar('Naked_Reward/MuJoCo', naked_mj_reward, episode)
+        writer.add_scalar('inference between mujoco and pyb evalls', mj_reward-naked_pyb_reward, episode)
+        writer.add_scalar('inference between naked mujoco and pyb evalls', naked_mj_reward-naked_pyb_reward, episode)
         episode_rewards.append(episode_reward)
         mj_rewards.append(mj_reward)
         pyb_rewards.append(pyb_reward)
